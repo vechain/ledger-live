@@ -8,6 +8,7 @@ import { Transaction } from "thor-devkit";
 import { HEX_PREFIX } from "../constants";
 import { getEnv } from "@ledgerhq/live-env";
 import BigNumber from "bignumber.js";
+import { moreThanOrEqual } from "../utils/semantic-version";
 
 const BASE_URL = getEnv("API_VECHAIN_THOREST");
 
@@ -27,6 +28,34 @@ export const getLastBlockHeight = async (): Promise<number> => {
   });
 
   return data.number;
+};
+
+
+/**
+ * Get the revision of the blockchain
+ * @returns the revision of the blockchain
+ */
+export const getRevision = async (): Promise<string> => {
+  const { data } = await network({
+    method: "GET",
+    url: `${BASE_URL}/blocks/best`,
+  });
+
+
+  let revision = "best"
+
+  if (data.headers.get && typeof data.headers.get === "function") {
+      const thorVersion = data.headers.get("x-thorest-ver")
+
+      if (
+          typeof thorVersion === "string" &&
+          moreThanOrEqual(thorVersion, "2.1.3")
+      ) {
+          revision = "next"
+      }
+  }
+
+  return revision;
 };
 
 /**
@@ -130,14 +159,15 @@ export const submit = async (tx: Transaction): Promise<string> => {
 };
 
 /**
- * Query the blockchain
+ * Query the blockchain to simulate a transaction
  * @param queryData - The query data
  * @returns a result of the query
  */
-export const query = async (queryData: Query[]): Promise<QueryResponse[]> => {
+export const simulateTransaction = async (queryData: Query[]): Promise<QueryResponse[]> => {
+  const revision = await getRevision();
   const { data } = await network({
     method: "POST",
-    url: `${BASE_URL}/accounts/*`,
+    url: `${BASE_URL}/accounts/*?revision=${revision}`,
     data: { clauses: queryData },
   });
 

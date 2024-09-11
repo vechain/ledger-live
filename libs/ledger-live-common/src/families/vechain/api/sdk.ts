@@ -8,6 +8,7 @@ import { Transaction } from "thor-devkit";
 import { HEX_PREFIX } from "../constants";
 import { getEnv } from "@ledgerhq/live-env";
 import BigNumber from "bignumber.js";
+import { moreThanOrEqual } from "../utils/semantic-version";
 
 const BASE_URL = getEnv("API_VECHAIN_THOREST");
 
@@ -27,6 +28,35 @@ export const getLastBlockHeight = async (): Promise<number> => {
   });
 
   return data.number;
+};
+
+
+/**
+ * Get the revision of the blockchain based on the version of the node
+ * @returns the revision of the blockchain
+ */
+export const getRevision = async (): Promise<string> => {
+  const { headers } = await network({
+    method: "GET",
+    url: `${BASE_URL}/blocks/best`,
+  });
+
+
+  let revision = "best" // "best" is the default revision
+
+  if (headers?.get && typeof headers.get === "function") {
+      const thorVersion = headers.get("x-thorest-ver")
+
+      // check if the version is more than or equal to 2.1.3, in that case we use the "next" revision
+      if (
+          typeof thorVersion === "string" &&
+          moreThanOrEqual(thorVersion, "2.1.3")
+      ) {
+          revision = "next"
+      }
+  }
+
+  return revision;
 };
 
 /**
@@ -130,15 +160,23 @@ export const submit = async (tx: Transaction): Promise<string> => {
 };
 
 /**
- * Query the blockchain
- * @param queryData - The query data
+ * Query the blockchain to simulate a transaction
+ * @param clauses - clauses to simulate
  * @returns a result of the query
  */
-export const query = async (queryData: Query[]): Promise<QueryResponse[]> => {
+export const simulateTransaction = async ({
+  clauses, caller
+}:{
+  clauses: Query[], caller?: string}): Promise<QueryResponse[]> => {
+  const revision = await getRevision();
   const { data } = await network({
     method: "POST",
-    url: `${BASE_URL}/accounts/*`,
-    data: { clauses: queryData },
+    url: `${BASE_URL}/accounts/*?revision=${revision}`,
+    data: { 
+      clauses,
+      // caller is needed because otherwise it returns wrong results for transactions against brand new accounts (empty accounts just created)
+      caller 
+    },
   });
 
   return data;

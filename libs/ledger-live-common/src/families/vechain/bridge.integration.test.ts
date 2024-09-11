@@ -167,7 +167,7 @@ const dataset: DatasetTest<Transaction> = {
                 family: "vechain",
                 subAccountId:
                   "js:2:vechain:0x0fe6688548f0C303932bB197B0A96034f1d74dba:vechain+vechain%2Fvip180%2Fvtho",
-                estimatedFees: "515820000000000000",
+                estimatedFees: "393270000000000000",
                 recipient: "0xcf130b42ae31c4931298b4b1c0f1d974b8732957",
                 amount: "20000000000000000000",
                 body: {
@@ -193,8 +193,8 @@ const dataset: DatasetTest<Transaction> = {
                   amount: new NotEnoughBalance(),
                 },
                 warnings: {},
-                totalSpent: new BigNumber("20515820000000000000"),
-                estimatedFees: new BigNumber("515820000000000000"),
+                totalSpent: new BigNumber("20393270000000000000"),
+                estimatedFees: new BigNumber("393270000000000000"),
               },
             },
           ],

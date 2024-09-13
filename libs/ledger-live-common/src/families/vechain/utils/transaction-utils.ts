@@ -30,8 +30,11 @@ export const generateNonce = (): string => {
  */
 export const estimateGas = async ({
   transaction,
-  caller
-}:{caller?:string, transaction: Transaction}): Promise<number> => {
+  caller,
+}: {
+  caller?: string;
+  transaction: Transaction;
+}): Promise<number> => {
   // estimate intrinsic gas (bytes submitted to the network):
   // The base fee for a transaction is 5000.
   // Each clause in the transaction incurs a cost of 16000.
@@ -40,12 +43,11 @@ export const estimateGas = async ({
   const intrinsicGas = ThorTransaction.intrinsicGas(transaction.body.clauses);
 
   // prepare clauses to simulate the transaction
-  const formattedClauses = transaction.body.clauses
-  .map(item => ({
-        to: item.to as string,
-        value: item.value || "0x0",
-        data: item.data || "0x",
-      }));
+  const formattedClauses = transaction.body.clauses.map(item => ({
+    to: item.to as string,
+    value: item.value || "0x0",
+    data: item.data || "0x",
+  }));
 
   // simulate transaction
   const simulatedTransaction = await simulateTransaction({ clauses: formattedClauses, caller });
@@ -129,11 +131,12 @@ export const calculateTransactionInfo = async (
       amountBackup = amount;
 
       const estimatedGasAndFees =
-        fixedMaxTokenFees || (await calculateGasFees({
-          transaction: tempTransaction, 
-          isTokenAccount, 
-          caller: account.freshAddress
-    }));
+        fixedMaxTokenFees ||
+        (await calculateGasFees({
+          transaction: tempTransaction,
+          isTokenAccount,
+          caller: account.freshAddress,
+        }));
 
       maxEstimatedGasFees = estimatedGasAndFees.estimatedGasFees;
       maxEstimatedGas = estimatedGasAndFees.estimatedGas;
@@ -182,17 +185,16 @@ export const calculateGasFees = async ({
   transaction,
   isTokenAccount,
   caller,
-}:{
-  transaction: Transaction,
-  isTokenAccount: boolean,
-  caller?: string,
+}: {
+  transaction: Transaction;
+  isTokenAccount: boolean;
+  caller?: string;
 }): Promise<{
   estimatedGas: number;
   estimatedGasFees: BigNumber;
 }> => {
   // check if the recipient is valid
   if (transaction.recipient && isValid(transaction.recipient)) {
-
     // calculate the clauses for the transaction
     let clauses;
     if (isTokenAccount) {
@@ -205,22 +207,24 @@ export const calculateGasFees = async ({
     // bytes sent (intrinsic gas) + bytes changed (simulated used gas) + VM_FEE (15000 to call the VM)
     const estimatedGas = await estimateGas({
       transaction: {
-      ...transaction,
-      body: { ...transaction.body, clauses: clauses },
-    }, caller});
+        ...transaction,
+        body: { ...transaction.body, clauses: clauses },
+      },
+      caller,
+    });
 
     // calculate the fees based on the estimated gas and the gas price coefficient
     const estimatedGasFees = await calculateFee(
-        new BigNumber(estimatedGas),
-        transaction.body.gasPriceCoef || DEFAULT_GAS_COEFFICIENT,
-      )
+      new BigNumber(estimatedGas),
+      transaction.body.gasPriceCoef || DEFAULT_GAS_COEFFICIENT,
+    );
 
     return {
       estimatedGas,
       estimatedGasFees,
     };
   }
-  // 
+  //
   return {
     estimatedGas: 0,
     estimatedGasFees: new BigNumber(0),

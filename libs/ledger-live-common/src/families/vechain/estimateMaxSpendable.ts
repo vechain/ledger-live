@@ -9,16 +9,16 @@ import type { Transaction } from "./types";
 export const estimateMaxSpendable: AccountBridge<Transaction>["estimateMaxSpendable"] = async ({
   account,
   transaction,
-  parentAccount
+  parentAccount,
 }): Promise<BigNumber> => {
   if (account.type === "Account" || !transaction) {
     return account.balance;
   }
 
   const { estimatedGasFees: maxTokenFees } = await calculateGasFees({
-    transaction, 
+    transaction,
     isTokenAccount: true,
-    caller: parentAccount?.freshAddress
+    caller: parentAccount?.freshAddress,
   });
   const spendable = account.balance.minus(maxTokenFees);
   if (spendable.gt(0)) return account.balance.minus(maxTokenFees);

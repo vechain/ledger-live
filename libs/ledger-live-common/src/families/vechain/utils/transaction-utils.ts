@@ -5,14 +5,12 @@ import { Transaction as ThorTransaction } from "thor-devkit";
 import params from "../contracts/abis/params";
 import { BASE_GAS_PRICE_KEY, PARAMS_ADDRESS } from "../contracts/constants";
 import { Query } from "../api/types";
-import { query } from "../api/sdk";
+import { simulateTransaction } from "../api/sdk";
 import { Account, TokenAccount } from "@ledgerhq/types-live";
 import { Transaction, TransactionInfo } from "../types";
 import { isValid } from "./address-utils";
 import { calculateClausesVet, calculateClausesVtho } from "../logic";
 import { ImpossibleToCalculateAmountAndFees } from "../errors";
-
-const GAS_COEFFICIENT = 15000;
 
 /**
  * Generate a Unique ID to be used as a nonce
@@ -27,27 +25,41 @@ export const generateNonce = (): string => {
 /**
  * Estimate the gas that will be used by the transaction.
  * @param transaction - The transaction to estimate the gas for
+ * @param caller - The caller of the transaction
  * @returns an estimate of the gas usage
  */
-export const estimateGas = async (t: Transaction): Promise<number> => {
-  const intrinsicGas = ThorTransaction.intrinsicGas(t.body.clauses);
+export const estimateGas = async ({
+  transaction,
+  caller,
+}: {
+  caller?: string;
+  transaction: Transaction;
+}): Promise<number> => {
+  // estimate intrinsic gas (bytes submitted to the network):
+  // The base fee for a transaction is 5000.
+  // Each clause in the transaction incurs a cost of 16000.
+  // Zero bytes in the transaction cost 4 each.
+  // Non-zero bytes in the transaction cost 68 each.
+  const intrinsicGas = ThorTransaction.intrinsicGas(transaction.body.clauses);
 
-  const queryData: Query[] = [];
+  // prepare clauses to simulate the transaction
+  const formattedClauses = transaction.body.clauses.map(item => ({
+    to: item.to as string,
+    value: item.value || "0x0",
+    data: item.data || "0x",
+  }));
 
-  t.body.clauses.forEach(c => {
-    if (c.to) {
-      queryData.push({
-        to: c.to,
-        data: c.data,
-      });
-    }
-  });
+  // simulate transaction
+  const simulatedTransaction = await simulateTransaction({ clauses: formattedClauses, caller });
 
-  const response = await query(queryData);
+  // calculate gas used from the simulated transaction
+  const executionGas = simulatedTransaction.reduce((sum, out) => sum + out.gasUsed, 0);
 
-  const execGas = response.reduce((sum, out) => sum + out.gasUsed, 0);
+  // there is a fee used for invoking the VM of 15000
+  const VM_FEE = 15000;
 
-  return intrinsicGas + (execGas ? execGas + GAS_COEFFICIENT : 0);
+  // sum intrinsic gas and execution gas to get the total gas used, add VM_FEE if execution gas is present
+  return intrinsicGas + (executionGas ? executionGas + VM_FEE : 0);
 };
 
 const getBaseGasPrice = async (): Promise<string> => {
@@ -56,7 +68,7 @@ const getBaseGasPrice = async (): Promise<string> => {
     data: params.get.encode(BASE_GAS_PRICE_KEY),
   };
 
-  const response = await query([queryData]);
+  const response = await simulateTransaction({ clauses: [queryData] });
 
   // Expect 1 value
   if (response && response.length != 1) throw Error("Unexpected response received for query");
@@ -119,7 +131,12 @@ export const calculateTransactionInfo = async (
       amountBackup = amount;
 
       const estimatedGasAndFees =
-        fixedMaxTokenFees || (await calculateGasFees(tempTransaction, isTokenAccount));
+        fixedMaxTokenFees ||
+        (await calculateGasFees({
+          transaction: tempTransaction,
+          isTokenAccount,
+          caller: account.freshAddress,
+        }));
 
       maxEstimatedGasFees = estimatedGasAndFees.estimatedGasFees;
       maxEstimatedGas = estimatedGasAndFees.estimatedGas;
@@ -158,32 +175,56 @@ export const calculateTransactionInfo = async (
   };
 };
 
-export const calculateGasFees = async (
-  transaction: Transaction,
-  isTokenAccount: boolean,
-): Promise<{
+/**
+ * This function is used to calculate the gas fees for a transaction
+ * @param transaction - The transaction to calculate the gas fees for
+ * @param isTokenAccount - Whether the account is a token account
+ * @returns the estimated gas and gas fees
+ */
+export const calculateGasFees = async ({
+  transaction,
+  isTokenAccount,
+  caller,
+}: {
+  transaction: Transaction;
+  isTokenAccount: boolean;
+  caller?: string;
+}): Promise<{
   estimatedGas: number;
   estimatedGasFees: BigNumber;
 }> => {
+  // check if the recipient is valid
   if (transaction.recipient && isValid(transaction.recipient)) {
+    // calculate the clauses for the transaction
     let clauses;
     if (isTokenAccount) {
       clauses = await calculateClausesVtho(transaction.recipient, transaction.amount);
     } else {
       clauses = await calculateClausesVet(transaction.recipient, transaction.amount);
     }
-    const gas = await estimateGas({
-      ...transaction,
-      body: { ...transaction.body, clauses: clauses },
+
+    // estimate gas based on the clauses
+    // bytes sent (intrinsic gas) + bytes changed (simulated used gas) + VM_FEE (15000 to call the VM)
+    const estimatedGas = await estimateGas({
+      transaction: {
+        ...transaction,
+        body: { ...transaction.body, clauses: clauses },
+      },
+      caller,
     });
+
+    // calculate the fees based on the estimated gas and the gas price coefficient
+    const estimatedGasFees = await calculateFee(
+      new BigNumber(estimatedGas),
+      transaction.body.gasPriceCoef || DEFAULT_GAS_COEFFICIENT,
+    );
+
     return {
-      estimatedGas: gas,
-      estimatedGasFees: await calculateFee(
-        new BigNumber(gas),
-        transaction.body.gasPriceCoef || DEFAULT_GAS_COEFFICIENT,
-      ),
+      estimatedGas,
+      estimatedGasFees,
     };
   }
+  //
   return {
     estimatedGas: 0,
     estimatedGasFees: new BigNumber(0),

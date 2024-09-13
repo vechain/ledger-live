@@ -130,15 +130,25 @@ export const submit = async (tx: Transaction): Promise<string> => {
 };
 
 /**
- * Query the blockchain
- * @param queryData - The query data
+ * Query the blockchain to simulate a transaction
+ * @param clauses - clauses to simulate
  * @returns a result of the query
  */
-export const query = async (queryData: Query[]): Promise<QueryResponse[]> => {
+export const simulateTransaction = async ({
+  clauses,
+  caller,
+}: {
+  clauses: Query[];
+  caller?: string;
+}): Promise<QueryResponse[]> => {
   const { data } = await network({
     method: "POST",
-    url: `${BASE_URL}/accounts/*`,
-    data: { clauses: queryData },
+    url: `${BASE_URL}/accounts/*?revision=next`,
+    data: {
+      clauses,
+      // caller is needed because otherwise it returns wrong results for transactions against brand new accounts (empty accounts just created)
+      caller,
+    },
   });
 
   return data;
